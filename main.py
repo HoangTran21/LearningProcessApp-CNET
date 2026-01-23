@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QHBoxLayout, 
                              QWidget, QPushButton, QHeaderView, QComboBox, 
                              QLineEdit, QTextEdit, QLabel, QDialog, QFormLayout, 
-                             QMessageBox, QGroupBox, QFileDialog)
-from PySide6.QtCore import Qt
+                             QMessageBox, QGroupBox, QFileDialog, QDateEdit, QAbstractItemView)
+from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor, QIcon
 from docx import Document
 
@@ -16,7 +16,6 @@ class EntryDialog(QDialog):
         self.setWindowTitle("Thông tin tiến độ")
         self.setFixedWidth(500)
         
-        # GIỮ NGUYÊN STYLE CŨ CỦA BẠN
         self.setStyleSheet("""
             QDialog { background-color: #f4f7f6; }
             QGroupBox { 
@@ -27,7 +26,7 @@ class EntryDialog(QDialog):
                 background-color: white;
             }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QLineEdit, QComboBox { 
+            QLineEdit, QComboBox, QDateEdit { 
                 border: 1px solid #ccc; 
                 border-radius: 4px; 
                 padding: 8px; 
@@ -47,15 +46,22 @@ class EntryDialog(QDialog):
         form_group = QGroupBox("Chi tiết học tập")
         form_layout = QFormLayout(form_group)
         
-        today = datetime.now().strftime("%Y-%m-%d")
-        self.date_edit = QLineEdit(data[1] if data else today)
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("yyyy-MM-dd")
+        
+        if data:
+            q_date = QDate.fromString(data[1], "yyyy-MM-dd")
+            self.date_edit.setDate(q_date)
+        else:
+            self.date_edit.setDate(QDate.currentDate())
+
         self.name_edit = QLineEdit(data[2] if data else "")
         
         self.class_edit = QComboBox()
         self.class_edit.addItems(["Sáng T7", "Chiều T7", "Sáng CN", "Chiều CN"])
         if data: self.class_edit.setCurrentText(data[3])
         
-        # CẬP NHẬT: Trạng thái là ComboBox
         self.status_edit = QComboBox()
         self.status_edit.addItems(["Đi học", "Nghỉ học"])
         if data: self.status_edit.setCurrentText(data[4])
@@ -64,12 +70,11 @@ class EntryDialog(QDialog):
         self.content_edit.setPlaceholderText("Nhập nội dung chi tiết bài học tại đây...")
         self.content_edit.setMinimumHeight(150)
 
-        # CẬP NHẬT: Thêm mục "Học tốt"
         self.highlight_cb = QComboBox()
         self.highlight_cb.addItems(["Bình thường", "Cần chú ý (Highlight)", "Học tốt"])
         if data: self.highlight_cb.setCurrentIndex(data[6])
 
-        form_layout.addRow("Ngày (YYYY-MM-DD):", self.date_edit)
+        form_layout.addRow("Chọn ngày:", self.date_edit) # Đổi nhãn
         form_layout.addRow("Tên học sinh:", self.name_edit)
         form_layout.addRow("Lớp:", self.class_edit)
         form_layout.addRow("Trạng thái:", self.status_edit)
@@ -92,7 +97,6 @@ class EntryDialog(QDialog):
         self.btn_save.clicked.connect(self.validate_and_accept)
         layout.addWidget(self.btn_save)
 
-    # CẬP NHẬT: Hàm bắt lỗi trống thông tin
     def validate_and_accept(self):
         if not self.name_edit.text().strip():
             QMessageBox.warning(self, "Cảnh báo", "Vui lòng nhập Tên học sinh!")
@@ -103,8 +107,9 @@ class EntryDialog(QDialog):
         self.accept()
 
     def get_data(self):
-        return (self.date_edit.text(), self.name_edit.text(), self.class_edit.currentText(),
-                self.status_edit.currentText(), self.content_edit.toPlainText(), self.highlight_cb.currentIndex())
+        return (self.date_edit.date().toString("yyyy-MM-dd"), self.name_edit.text(), 
+                self.class_edit.currentText(), self.status_edit.currentText(), 
+                self.content_edit.toPlainText(), self.highlight_cb.currentIndex())
 
 # --- Cửa sổ Tổng kết tháng ---
 class SummaryDialog(QDialog):
@@ -142,9 +147,18 @@ class SummaryDialog(QDialog):
         rows = cursor.fetchall()
         self.summary_table.setRowCount(len(rows))
         for i, (name, cls) in enumerate(rows):
-            self.summary_table.setItem(i, 0, QTableWidgetItem(str(i+1)))
-            self.summary_table.setItem(i, 1, QTableWidgetItem(name))
-            self.summary_table.setItem(i, 2, QTableWidgetItem(cls))
+            stt_item = QTableWidgetItem(str(i+1))
+            stt_item.setFlags(stt_item.flags() ^ Qt.ItemIsEditable)
+            self.summary_table.setItem(i, 0, stt_item)
+            
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() ^ Qt.ItemIsEditable)
+            self.summary_table.setItem(i, 1, name_item)
+            
+            cls_item = QTableWidgetItem(cls)
+            cls_item.setFlags(cls_item.flags() ^ Qt.ItemIsEditable)
+            self.summary_table.setItem(i, 2, cls_item)
+            
             self.summary_table.setItem(i, 3, QTableWidgetItem(""))
 
     def export_to_word(self):
@@ -175,7 +189,7 @@ class StudentManager(QMainWindow):
             QMainWindow, QWidget { background-color: white; color: #333; }
             QTableWidget { gridline-color: #ddd; border: 1px solid #ccc; background-color: #fdfdfd; }
             QHeaderView::section { background-color: #f8f9fa; padding: 5px; border: 1px solid #ddd; font-weight: bold; }
-            QLineEdit { border: 1px solid #ccc; padding: 5px; border-radius: 3px; }
+            QLineEdit, QDateEdit { border: 1px solid #ccc; padding: 5px; border-radius: 3px; }
         """)
         self.conn = sqlite3.connect('hoc_tap.db')
         self.init_db()
@@ -195,8 +209,10 @@ class StudentManager(QMainWindow):
         search_layout = QHBoxLayout()
         self.search_name = QLineEdit(); self.search_name.setPlaceholderText("Tìm theo tên học sinh...")
         self.search_name.textChanged.connect(self.load_data)
+        
         self.search_date = QLineEdit(); self.search_date.setPlaceholderText("Tìm theo ngày (YYYY-MM-DD)...")
         self.search_date.textChanged.connect(self.load_data)
+        
         self.filter_class = QComboBox()
         self.filter_class.addItems(["Tất cả lớp", "Sáng T7", "Chiều T7", "Sáng CN", "Chiều CN"])
         self.filter_class.currentTextChanged.connect(self.load_data)
@@ -217,6 +233,9 @@ class StudentManager(QMainWindow):
         self.table.setHorizontalHeaderLabels(["ID", "Ngày", "Học sinh", "Lớp học", "Trạng thái", "Nội dung bài học"])
         self.table.hideColumn(0); self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectRows); self.table.setAlternatingRowColors(True)
+        
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        
         main_layout.addWidget(self.table)
         container = QWidget(); container.setLayout(main_layout); self.setCentralWidget(container)
 
@@ -235,9 +254,9 @@ class StudentManager(QMainWindow):
             self.table.insertRow(row_idx)
             for col_idx, value in enumerate(row_data[:-1]):
                 item = QTableWidgetItem(str(value))
-                if row_data[6] == 1: # Cần chú ý
+                if row_data[6] == 1:
                     item.setBackground(QColor("#fff3cd")); item.setForeground(QColor("#856404"))
-                elif row_data[6] == 2: # Học tốt (Màu xanh lá nhạt)
+                elif row_data[6] == 2:
                     item.setBackground(QColor("#d4edda")); item.setForeground(QColor("#155724"))
                 self.table.setItem(row_idx, col_idx, item)
 
