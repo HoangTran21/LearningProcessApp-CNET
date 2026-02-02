@@ -129,18 +129,36 @@ class AttendanceDialog(QDialog):
             QCheckBox#SelectAll {
                 font-size: 16px;
                 spacing: 8px;
-                color: #007bff;
+                color: #d63384;
                 font-weight: bold;
                 padding: 8px;
-                background-color: #eef7ff;
+                background-color: #ffffff;
                 border-radius: 5px;
             }
             QCheckBox#SelectAll:hover {
-                background-color: #e3f2fd;
+                background-color: #d63384;
+                color: #ffffff;
             }
             QCheckBox#SelectAll::indicator {
-                width: 18px;
-                height: 18px;
+                width: 20px;
+                height: 20px;
+                border: 2px solid #d63384;
+                border-radius: 4px;
+                background-color: white;
+            }
+
+            QCheckBox#SelectAll::indicator:hover {
+                border: 2px solid #b02a6f;
+                background-color: #f8d7da;
+            }
+
+            QCheckBox#SelectAll::indicator:checked {
+                background-color: #28a745; /* Nền xanh lá khi chọn */
+                border: 2px solid #1e7e34; /* Viền xanh đậm khi chọn */
+            }
+            
+            QCheckBox#SelectAll::indicator:checked:pressed {
+                background-color: #1e7e34;
             }
         """)
 
@@ -152,12 +170,32 @@ class AttendanceDialog(QDialog):
         filter_label = QLabel("Lọc lớp học:")
         self.class_filter = QComboBox()
         self.class_filter.addItems(["Tất cả lớp", "Sáng T7", "Chiều T7", "Sáng CN", "Chiều CN"])
+        self.class_filter.setStyleSheet("""
+            QComboBox { 
+                padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; color: #d63384; 
+            }
+        """)
         self.class_filter.currentTextChanged.connect(self.refresh_list)
         
         filter_layout.addWidget(filter_label)
         filter_layout.addWidget(self.class_filter)
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
+        
+        date_layout = QHBoxLayout()
+        date_label = QLabel("Ngày điểm danh:")
+        self.attendance_date = QDateEdit()
+        self.attendance_date.setCalendarPopup(True)
+        self.attendance_date.setDate(QDate.currentDate())
+        self.attendance_date.setStyleSheet("""
+            QDateEdit { 
+                padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; color: #d63384; 
+            }
+        """)
+        date_layout.addWidget(date_label)
+        date_layout.addWidget(self.attendance_date)
+        date_layout.addStretch()
+        layout.addLayout(date_layout)
 
         self.cb_select_all = QCheckBox("Chọn tất cả học viên")
         self.cb_select_all.setObjectName("SelectAll") 
@@ -215,14 +253,15 @@ class AttendanceDialog(QDialog):
         self.group_box.setTitle(f"Học viên lớp {filter_text} ({self.list_widget.count()})")
 
     def get_selected_data(self):
-        """Sửa lỗi: Đảm bảo chỉ lấy những dòng ĐÃ TÍCH"""
         selected = []
+        chosen_date = self.attendance_date.date().toString("yyyy-MM-dd")
+        
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             if item.checkState() == Qt.Checked:
                 data = item.data(Qt.UserRole)
-                if data: # Tránh lấy item trống
-                    selected.append(data)
+                if data:
+                    selected.append((data[0], data[1], chosen_date))
         return selected
 
     def center_dialog(self):
@@ -248,7 +287,7 @@ class StatisticsDialog(QDialog):
     def __init__(self, parent, db_conn):
         super().__init__(parent)
         self.setWindowTitle("Báo cáo thống kê đào tạo")
-        self.resize(900, 750)
+        self.resize(1000, 750)
         self.db_conn = db_conn
         
         self.setStyleSheet("""
@@ -302,14 +341,19 @@ class StatisticsDialog(QDialog):
         self.summary_table.setFixedHeight(200)
         layout.addWidget(self.summary_table)
 
-        # --- Bảng 2: Chi tiết nhận xét ---
+        # --- Bảng 2: Chi tiết học sinh & Nhận xét ---
         layout.addWidget(QLabel("<b>2. Chi tiết học viên và nhận xét:</b>"))
         self.detail_table = QTableWidget()
-        self.detail_table.setColumnCount(4)
-        self.detail_table.setHorizontalHeaderLabels(["Ngày", "Lớp", "Tên học sinh", "Nhận xét cuối buổi"])
-        self.detail_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.detail_table.setColumnCount(5) # Tăng lên 5 cột
+        self.detail_table.setHorizontalHeaderLabels([
+            "Ngày", "Lớp", "Tên học sinh", "Chuyên cần tháng", "Nhận xét cuối buổi"
+        ])
+        # Điều chỉnh độ rộng cột
+        self.detail_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.detail_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.detail_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.detail_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         layout.addWidget(self.detail_table)
-
         btn_box = QHBoxLayout()
         self.btn_export_word = QPushButton("📄 XUẤT FILE WORD")
         self.btn_export_word.setObjectName("ExportBtn")
@@ -349,6 +393,17 @@ class StatisticsDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
+    def count_weekends_in_month(self, year, month):
+        """Đếm tổng số ngày Thứ 7 và Chủ nhật trong một tháng cụ thể"""
+        import calendar
+        count = 0
+        num_days = calendar.monthrange(year, month)[1]
+        for day in range(1, num_days + 1):
+            # 5 là Thứ 7, 6 là Chủ nhật trong thư viện calendar
+            if calendar.weekday(year, month, day) in [5, 6]:
+                count += 1
+        return count
+    
     def calculate_stats(self):
         d1 = self.start_date.date().toString("yyyy-MM-dd")
         d2 = self.end_date.date().toString("yyyy-MM-dd")
@@ -381,14 +436,50 @@ class StatisticsDialog(QDialog):
 
         # 2. Xử lý Bảng Chi Tiết
         self.detail_table.setRowCount(0)
-        cursor.execute("""SELECT date, class_name, name, content FROM progress 
-                          WHERE date BETWEEN ? AND ? ORDER BY date DESC, class_name ASC""", (d1, d2))
-        rows = cursor.fetchall()
-        for r_data in rows:
-            r = self.detail_table.rowCount()
-            self.detail_table.insertRow(r)
-            for c, val in enumerate(r_data):
-                self.detail_table.setItem(r, c, QTableWidgetItem(str(val)))
+        cursor.execute("""
+            SELECT date, class_name, name, content 
+            FROM progress 
+            WHERE date BETWEEN ? AND ? 
+            ORDER BY date DESC, class_name ASC
+        """, (d1, d2))
+        
+        details = cursor.fetchall()
+        for r_date, c_name, s_name, content in details:
+            # Tách năm và tháng từ ngày của dòng hiện tại
+            year = int(r_date[:4])
+            month = int(r_date[5:7])
+            current_month_str = r_date[:7] # Dạng "YYYY-MM"
+
+            # A. Tính tổng số buổi có trong tháng (Các ngày T7, CN)
+            total_weekends = self.count_weekends_in_month(year, month)
+            
+            # B. Tính số buổi học sinh này ĐÃ ĐI HỌC trong tháng đó
+            cursor.execute("""
+                SELECT COUNT(*) FROM progress 
+                WHERE name = ? AND status = 'Đi học' AND date LIKE ?
+            """, (s_name, f"{current_month_str}%"))
+            attended = cursor.fetchone()[0] or 0
+            
+            attendance_ratio = f"{attended}/{total_weekends}"
+
+            row = self.detail_table.rowCount()
+            self.detail_table.insertRow(row)
+            self.detail_table.setItem(row, 0, QTableWidgetItem(r_date))
+            self.detail_table.setItem(row, 1, QTableWidgetItem(c_name))
+            self.detail_table.setItem(row, 2, QTableWidgetItem(s_name))
+            
+            # Cột Chuyên cần (Ví dụ: 7/8)
+            ratio_item = QTableWidgetItem(attendance_ratio)
+            ratio_item.setTextAlignment(Qt.AlignCenter)
+            
+            # Đổi màu chữ: Nếu nghỉ quá 2 buổi thì hiện màu đỏ cảnh báo
+            if total_weekends - attended >= 2:
+                ratio_item.setForeground(QColor("#dc3545")) # Đỏ
+            else:
+                ratio_item.setForeground(QColor("#28a745")) # Xanh lá
+                
+            self.detail_table.setItem(row, 3, ratio_item)
+            self.detail_table.setItem(row, 4, QTableWidgetItem(str(content)))
 
     def export_to_word(self):
         path, _ = QFileDialog.getSaveFileName(self, "Lưu báo cáo", f"Bao_cao_hoc_tap_{QDate.currentDate().toString('ddMMyy')}.docx", "Word Files (*.docx)")
@@ -580,21 +671,21 @@ class StudentManager(QMainWindow):
             if not selected:
                 return
                 
-            today = QDate.currentDate().toString("yyyy-MM-dd")
             cursor = self.conn.cursor()
             
-            for name, cls in selected:
-                cursor.execute("SELECT id FROM progress WHERE name = ? AND date = ?", (name, today))
+            for name, cls, chosen_date in selected:
+                cursor.execute("SELECT id FROM progress WHERE name = ? AND date = ?", (name, chosen_date))
+                
                 if cursor.fetchone() is None:
                     cursor.execute(
                         "INSERT INTO progress (date, name, class_name, status, content, is_highlighted) VALUES (?,?,?,?,?,?)",
-                        (today, name, cls, "Đi học", "(Chưa có nhận xét cuối buổi)", 0)
+                        (chosen_date, name, cls, "Đi học", "(Chưa có nhận xét cuối buổi)", 0)
                     )
             
             self.conn.commit()
             self.load_data()
             
-            QMessageBox.information(self, "Thành công", f"Đã điểm danh cho {len(selected)} học sinh.")
+            QMessageBox.information(self, "Thành công", f"Đã điểm danh cho {len(selected)} học sinh vào ngày {chosen_date}.")
 
     def add_entry(self):
         cursor = self.conn.cursor(); cursor.execute("SELECT DISTINCT name FROM progress")
