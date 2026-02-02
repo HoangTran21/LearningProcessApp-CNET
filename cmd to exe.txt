@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onefile --windowed --icon="logo_app.ico" "main.py"
