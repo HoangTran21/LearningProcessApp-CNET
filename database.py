@@ -72,3 +72,12 @@ class Database:
                     (chosen_date, name, cls, "Đi học", "(Chưa có nhận xét cuối buổi)", 0)
                 )
         self.conn.commit()
+
+    def update_entries_content(self, id_list, content):
+        cursor = self.conn.cursor()
+        for entry_id in id_list:
+            cursor.execute(
+                "UPDATE progress SET content=? WHERE id=?",
+                (content, entry_id)
+            )
+        self.conn.commit()

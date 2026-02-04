@@ -11,6 +11,7 @@ from styles import MAIN_STYLE
 from dialogs.entry_dialog import EntryDialog
 from dialogs.attendance_dialog import AttendanceDialog
 from dialogs.statistics_dialog import StatisticsDialog
+from dialogs.common_comment_dialog import CommonCommentDialog
 
 
 class StudentManager(QMainWindow):
@@ -81,10 +82,10 @@ class StudentManager(QMainWindow):
         self.btn_att.setFixedSize(140, 35)
         self.btn_att.clicked.connect(self.open_attendance)
         
-        self.btn_add = QPushButton("+ Thêm lẻ")
-        self.btn_add.setStyleSheet("background-color: #007bff; color: white;")
-        self.btn_add.setFixedSize(140, 35)
-        self.btn_add.clicked.connect(self.add_entry)
+        self.btn_common = QPushButton("✍ Nhận xét chung")
+        self.btn_common.setStyleSheet("background-color: #007bff; color: white;")
+        self.btn_common.setFixedSize(160, 35)
+        self.btn_common.clicked.connect(self.add_common_comment)
         
         self.btn_edit = QPushButton("✎ Viết nhận xét")
         self.btn_edit.setStyleSheet("background-color: #ffc107; color: #222;")
@@ -102,7 +103,7 @@ class StudentManager(QMainWindow):
         self.btn_stats.clicked.connect(self.open_statistics)
         
         layout.addWidget(self.btn_att)
-        layout.addWidget(self.btn_add)
+        layout.addWidget(self.btn_common)
         layout.addWidget(self.btn_edit)
         layout.addWidget(self.btn_del)
         layout.addStretch()
@@ -120,6 +121,7 @@ class StudentManager(QMainWindow):
         self.table.hideColumn(0)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         
@@ -174,13 +176,22 @@ class StudentManager(QMainWindow):
                 QMessageBox.information(self, "Thành công", 
                                       f"Đã điểm danh cho {len(selected_data)} học sinh.")
 
-    def add_entry(self):
-        student_list = self.db.get_distinct_student_names()
-        dialog = EntryDialog(self, student_list=student_list, db_conn=self.db.conn)
+    def add_common_comment(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Thông báo", "Vui lòng chọn các học sinh cần nhận xét chung!")
+            return
+
+        dialog = CommonCommentDialog(self)
         if dialog.exec():
-            data = dialog.get_data()
-            self.db.insert_entry(*data)
-            self.load_data()
+            content = dialog.get_content()
+            ids_to_update = [self.table.item(row.row(), 0).text() for row in selected_rows]
+            try:
+                self.db.update_entries_content(ids_to_update, content)
+                self.load_data()
+                QMessageBox.information(self, "Thành công", f"Đã cập nhật nhận xét cho {len(ids_to_update)} học sinh.")
+            except Exception as e:
+                QMessageBox.critical(self, "Lỗi", f"Không thể cập nhật nhận xét: {e}")
 
     def edit_entry(self):
         curr = self.table.currentRow()
