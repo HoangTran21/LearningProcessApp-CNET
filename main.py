@@ -12,6 +12,7 @@ from dialogs.entry_dialog import EntryDialog
 from dialogs.attendance_dialog import AttendanceDialog
 from dialogs.statistics_dialog import StatisticsDialog
 from dialogs.common_comment_dialog import CommonCommentDialog
+from dialogs.student_profile_dialog import StudentProfileDialog
 
 
 class StudentManager(QMainWindow):
@@ -38,7 +39,6 @@ class StudentManager(QMainWindow):
         main_layout.addWidget(self._create_data_table())
 
     def _create_filter_bar(self):
-        #Tìm kiếm
         layout = QHBoxLayout()
         
         self.search_name = QLineEdit()
@@ -102,11 +102,17 @@ class StudentManager(QMainWindow):
         self.btn_stats.setFixedSize(140, 35)
         self.btn_stats.clicked.connect(self.open_statistics)
         
+        self.btn_profile = QPushButton("👤 HỒ SƠ HỌC SINH")
+        self.btn_profile.setStyleSheet("background-color: #6f42c1; color: white;")
+        self.btn_profile.setFixedSize(160, 35)
+        self.btn_profile.clicked.connect(self.open_student_profile)
+        
         layout.addWidget(self.btn_att)
         layout.addWidget(self.btn_common)
         layout.addWidget(self.btn_edit)
         layout.addWidget(self.btn_del)
         layout.addStretch()
+        layout.addWidget(self.btn_profile)
         layout.addWidget(self.btn_stats)
         
         return layout
@@ -250,6 +256,11 @@ class StudentManager(QMainWindow):
     def open_statistics(self):
         dialog = StatisticsDialog(self, self.db.conn)
         dialog.exec()
+
+    def open_student_profile(self):
+        dialog = StudentProfileDialog(self, self.db)
+        dialog.exec()
+        self.load_data()
 
     def center_window(self):
         qr = self.frameGeometry()

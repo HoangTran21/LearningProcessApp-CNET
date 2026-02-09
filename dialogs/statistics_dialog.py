@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QMessageBox, QGroupBox, QDateEdit)
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QGuiApplication, QColor
-from docx import Document
 
 
 class StatisticsDialog(QDialog):
@@ -65,17 +64,29 @@ class StatisticsDialog(QDialog):
         self.summary_table.setFixedHeight(200)
         layout.addWidget(self.summary_table)
 
-        # Bảng 2: Chi tiết học sinh & Nhận xét
-        layout.addWidget(QLabel("<b>2. Chi tiết học viên và nhận xét:</b>"))
+        # Bảng 2: Thống kê số buổi học theo ID học sinh
+        layout.addWidget(QLabel("<b>2. Thống kê số buổi học theo ID học sinh:</b>"))
+        self.student_stats_table = QTableWidget(0, 6)
+        self.student_stats_table.setHorizontalHeaderLabels([
+            "ID học sinh", "Họ tên", "Lớp", "Số buổi đi học", "Số buổi nghỉ", "Tổng số buổi"
+        ])
+        self.student_stats_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.student_stats_table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.student_stats_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.student_stats_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.student_stats_table.setFixedHeight(250)
+        layout.addWidget(self.student_stats_table)
+
+        # Bảng 3: Chi tiết học sinh & Nhận xét
+        layout.addWidget(QLabel("<b>3. Chi tiết học viên và nhận xét:</b>"))
         self.detail_table = QTableWidget()
-        self.detail_table.setColumnCount(5)
+        self.detail_table.setColumnCount(3)
         self.detail_table.setHorizontalHeaderLabels([
-            "Ngày", "Lớp", "Tên học sinh", "Chuyên cần tháng", "Nhận xét cuối buổi"
+            "Họ tên", "Lớp đang học", "Nhận xét"
         ])
         self.detail_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.detail_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.detail_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.detail_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.detail_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         layout.addWidget(self.detail_table)
         
         btn_box = QHBoxLayout()
@@ -133,77 +144,106 @@ class StatisticsDialog(QDialog):
         
         classes = ["Sáng T7", "Chiều T7", "Sáng CN", "Chiều CN"]
         
-        # 1. Xử lý Bảng Tóm Tắt
+        # 1. Bảng tóm tắt
         self.summary_table.setRowCount(0)
+        from database import Database
+        db_temp = Database()
+        
         for class_name in classes:
-            # Sĩ số: Lấy số lượng học sinh duy nhất của lớp đó
-            cursor.execute("SELECT COUNT(DISTINCT name) FROM progress WHERE class_name = ?", (class_name,))
-            total = cursor.fetchone()[0] or 0
+            # Sĩ số: Lấy số lượng học sinh của từng lớp đang có
+            cursor.execute("SELECT COUNT(DISTINCT name) FROM progress WHERE class_name = ? AND date BETWEEN ? AND ?", 
+                          (class_name, d1, d2))
+            total_students = cursor.fetchone()[0] or 0
+            
+            # Tính số buổi cho lớp này trong khoảng thời gian đã chọn
+            expected_sessions = db_temp.count_expected_sessions(class_name, d1, d2)
+            
+            # Tổng số buổi= sĩ số × số buổi
+            total_expected = total_students * expected_sessions
             
             # Số buổi đi học thực tế
             cursor.execute("SELECT COUNT(*) FROM progress WHERE class_name = ? AND status = 'Đi học' AND date BETWEEN ? AND ?", 
                            (class_name, d1, d2))
             present = cursor.fetchone()[0] or 0
             
-            absent = total - present if total > present else 0
-            percent = (present / total * 100) if total > 0 else 0
+            # Số buổi nghỉ = tổng dự kiến - số buổi đi
+            absent = max(0, total_expected - present)
+            
+            # Tỉ lệ % = (số buổi đi / tổng dự kiến) × 100
+            percent = (present / total_expected * 100) if total_expected > 0 else 0
 
             row = self.summary_table.rowCount()
             self.summary_table.insertRow(row)
             self.summary_table.setItem(row, 0, QTableWidgetItem(class_name))
-            self.summary_table.setItem(row, 1, QTableWidgetItem(str(total)))
+            self.summary_table.setItem(row, 1, QTableWidgetItem(str(total_students)))
             self.summary_table.setItem(row, 2, QTableWidgetItem(str(present)))
             self.summary_table.setItem(row, 3, QTableWidgetItem(str(absent)))
-            self.summary_table.setItem(row, 4, QTableWidgetItem(f"{int(percent)}%"))
+            self.summary_table.setItem(row, 4, QTableWidgetItem(f"{percent:.1f}%"))
 
-        # 2. Xử lý Bảng Chi Tiết
-        self.detail_table.setRowCount(0)
-        cursor.execute("""
-            SELECT date, class_name, name, content 
-            FROM progress 
-            WHERE date BETWEEN ? AND ? 
-            ORDER BY date DESC, class_name ASC
-        """, (d1, d2))
+        # 2. Bảng thống kê số buổi học theo ID học sinh
+        self.student_stats_table.setRowCount(0)
+        from database import Database
+        db = Database()
+        students_with_attendance = db.get_all_students_with_attendance(d1, d2)
         
-        details = cursor.fetchall()
-        for r_date, c_name, s_name, content in details:
-            # Tách năm và tháng từ ngày
-            year = int(r_date[:4])
-            month = int(r_date[5:7])
-            current_month_str = r_date[:7]  # Dạng "YYYY-MM"
+        for student_id, name, class_name, attended, absent, total in students_with_attendance:
+            row = self.student_stats_table.rowCount()
+            self.student_stats_table.insertRow(row)
+            self.student_stats_table.setItem(row, 0, QTableWidgetItem(student_id))
+            self.student_stats_table.setItem(row, 1, QTableWidgetItem(name))
+            self.student_stats_table.setItem(row, 2, QTableWidgetItem(class_name))
+            
+            # Tô màu cho số buổi đi học
+            attended_item = QTableWidgetItem(str(attended))
+            attended_item.setForeground(QColor("#28a745"))
+            attended_item.setTextAlignment(Qt.AlignCenter)
+            self.student_stats_table.setItem(row, 3, attended_item)
+            
+            # Tô màu cho số buổi nghỉ
+            absent_item = QTableWidgetItem(str(absent))
+            absent_item.setForeground(QColor("#dc3545"))
+            absent_item.setTextAlignment(Qt.AlignCenter)
+            self.student_stats_table.setItem(row, 4, absent_item)
+            
+            # Tổng số buổi
+            total_item = QTableWidgetItem(str(total))
+            total_item.setTextAlignment(Qt.AlignCenter)
+            self.student_stats_table.setItem(row, 5, total_item)
 
-            # A. Tính tổng số buổi có trong tháng (Các ngày T7, CN)
-            total_weekends = self.count_weekends_in_month(year, month)
-            
-            # B. Tính số buổi học sinh này ĐÃ ĐI HỌC trong tháng đó
+        # 3. Bảng chi tiết
+        self.detail_table.setRowCount(0)
+        
+        # Lấy danh sách học sinh từ bảng students với các lớp của họ
+        cursor.execute("""
+            SELECT DISTINCT s.name, s.class_name
+            FROM students s
+            ORDER BY s.name
+        """)
+        
+        students_list = cursor.fetchall()
+        
+        for s_name, s_class in students_list:
+            # Lấy tất cả các lớp học sinh tham gia trong khoảng thời gian
             cursor.execute("""
-                SELECT COUNT(*) FROM progress 
-                WHERE name = ? AND status = 'Đi học' AND date LIKE ?
-            """, (s_name, f"{current_month_str}%"))
-            attended = cursor.fetchone()[0] or 0
+                SELECT DISTINCT class_name 
+                FROM progress 
+                WHERE name = ? AND date BETWEEN ? AND ?
+                ORDER BY class_name
+            """, (s_name, d1, d2))
             
-            attendance_ratio = f"{attended}/{total_weekends}"
+            classes_in_period = [row[0] for row in cursor.fetchall()]
+            display_classes = ", ".join(classes_in_period) if classes_in_period else s_class
 
             row = self.detail_table.rowCount()
             self.detail_table.insertRow(row)
-            self.detail_table.setItem(row, 0, QTableWidgetItem(r_date))
-            self.detail_table.setItem(row, 1, QTableWidgetItem(c_name))
-            self.detail_table.setItem(row, 2, QTableWidgetItem(s_name))
-            
-            ratio_item = QTableWidgetItem(attendance_ratio)
-            ratio_item.setTextAlignment(Qt.AlignCenter)
-            
-            # Đổi màu chữ: Nếu nghỉ quá 2 buổi thì hiện màu đỏ cảnh báo
-            if total_weekends - attended >= 2:
-                ratio_item.setForeground(QColor("#dc3545"))  # Đỏ
-            else:
-                ratio_item.setForeground(QColor("#28a745"))  # Xanh lá
-                
-            self.detail_table.setItem(row, 3, ratio_item)
-            self.detail_table.setItem(row, 4, QTableWidgetItem(str(content)))
+            self.detail_table.setItem(row, 0, QTableWidgetItem(s_name))
+            self.detail_table.setItem(row, 1, QTableWidgetItem(display_classes))
+            self.detail_table.setItem(row, 2, QTableWidgetItem(""))  # Nhận xét để trống
 
     def export_to_word(self):
         #Xuất báo cáo ra file Word
+        from docx import Document
+        
         path, _ = QFileDialog.getSaveFileName(
             self, 
             "Lưu báo cáo", 
@@ -239,20 +279,39 @@ class StatisticsDialog(QDialog):
 
             doc.add_paragraph("\n")
 
-            # 2. Bảng chi tiết
-            doc.add_heading('2. Chi tiết nội dung và nhận xét', level=1)
-            table2 = doc.add_table(rows=1, cols=4)
+            # 2. Bảng thống kê số buổi học theo ID
+            doc.add_heading('2. Thống kê số buổi học theo ID học sinh', level=1)
+            table_students = doc.add_table(rows=1, cols=6)
+            table_students.style = 'Table Grid'
+            hdr_students = table_students.rows[0].cells
+            hdr_students[0].text = 'ID học sinh'
+            hdr_students[1].text = 'Họ tên'
+            hdr_students[2].text = 'Lớp'
+            hdr_students[3].text = 'Số buổi đi học'
+            hdr_students[4].text = 'Số buổi nghỉ'
+            hdr_students[5].text = 'Tổng số buổi'
+
+            for r in range(self.student_stats_table.rowCount()):
+                row_cells = table_students.add_row().cells
+                for c in range(6):
+                    row_cells[c].text = self.student_stats_table.item(r, c).text()
+
+            doc.add_paragraph("\n")
+
+            # 3. Bảng chi tiết
+            doc.add_heading('3. Chi tiết học viên và nhận xét', level=1)
+            table2 = doc.add_table(rows=1, cols=3)
             table2.style = 'Table Grid'
             hdr_cells2 = table2.rows[0].cells
-            hdr_cells2[0].text = 'Ngày'
-            hdr_cells2[1].text = 'Lớp'
-            hdr_cells2[2].text = 'Học viên'
-            hdr_cells2[3].text = 'Nhận xét'
+            hdr_cells2[0].text = 'Họ tên'
+            hdr_cells2[1].text = 'Lớp đang học'
+            hdr_cells2[2].text = 'Nhận xét'
 
             for r in range(self.detail_table.rowCount()):
                 row_cells = table2.add_row().cells
-                for c in range(4):
-                    row_cells[c].text = self.detail_table.item(r, c).text()
+                for c in range(3):
+                    item = self.detail_table.item(r, c)
+                    row_cells[c].text = item.text() if item else ""
 
             doc.save(path)
             QMessageBox.information(self, "Thành công", f"Đã xuất báo cáo tại:\n{path}")
